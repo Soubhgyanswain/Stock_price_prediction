@@ -8,19 +8,8 @@ This project aims to predict stock prices using machine learning models trained 
 - Visualizes trends with interactive plots.
 - Uses moving averages and other indicators.
 
-## 📂 Project Structure
-├── app1.py                 # Alternative or additional script
-├── STOCK PP.ipynb          # Jupyter Notebook (Data analysis & model training)
-├── updated stock.ipynb     # Updated version of stock prediction notebook
-├── Stock Predictions Model.keras     # Pre-trained Keras model
-├── Stock Predictions Model1.keras    # Alternative model version
-├── Figure_1.png            # Visualization of stock trends
-├── Figure_3.png            # Additional stock price graphs
-├── Figure_4.png            # Moving averages & predictions
+📸 Results:
 
-
-
-📸 Results
 ![image](https://github.com/user-attachments/assets/2b7d59bf-934b-402c-8cb1-f6f5a5d85fac)
 ![image](https://github.com/user-attachments/assets/41a33070-e8e2-47b2-a10a-81bbac14069a)
 ![image](https://github.com/user-attachments/assets/63beb568-0e2d-4b1f-af3f-908b8d5e1df5)
