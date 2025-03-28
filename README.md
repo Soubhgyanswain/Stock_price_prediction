@@ -19,6 +19,7 @@ This project aims to predict stock prices using machine learning models trained 
 ├── Figure_4.png            # Moving averages & predictions
 
 
+
 📸 Results
 ![image](https://github.com/user-attachments/assets/2b7d59bf-934b-402c-8cb1-f6f5a5d85fac)
 ![image](https://github.com/user-attachments/assets/41a33070-e8e2-47b2-a10a-81bbac14069a)
