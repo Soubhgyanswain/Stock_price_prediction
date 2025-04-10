@@ -1,89 +1,172 @@
+import streamlit as st
 import numpy as np
 import pandas as pd
 import yfinance as yf
 from keras.models import load_model
-import streamlit as st
-import matplotlib.pyplot as plt
-from datetime import datetime
-
-# Load the trained model
-model = load_model(r"C:\Users\KIIT\Desktop\STOCK PP\Stock Predictions Model1.keras")
-
-# Streamlit App Header
-st.header('Stock Market Predictor')
-
-# User Input for Stock Symbol
-stock = st.text_input('Enter Stock Symbol', 'GOOG')
-
-# Define Date Range (Updated to fetch latest data till 23 March 2025)
-start = '2012-01-01'
-end = datetime.today().strftime('%Y-%m-%d')  # Automatically fetches today's date
-
-# Fetch Stock Data
-data = yf.download(stock, start, end)
-
-# Display Stock Data
-st.subheader('Stock Data')
-st.write(data)
-
-# Splitting Data into Training and Testing Sets
-data_train = pd.DataFrame(data.Close[:int(len(data)*0.80)])
-data_test = pd.DataFrame(data.Close[int(len(data)*0.80):])
-
-# Normalize Data for Prediction
 from sklearn.preprocessing import MinMaxScaler
-scaler = MinMaxScaler(feature_range=(0,1))
+from sklearn.metrics import mean_squared_error
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
-past_100_days = data_train.tail(100)
-data_test = pd.concat([past_100_days, data_test], ignore_index=True)
-data_test_scale = scaler.fit_transform(data_test)
+# ----------------- Streamlit Page Configuration -----------------
+st.set_page_config(page_title="Stock Predictor", layout="wide")
 
-# Moving Averages (50, 100, 200 days)
-st.subheader('Price vs MA50')
-ma_50_days = data.Close.rolling(50).mean()
-fig1 = plt.figure(figsize=(8,6))
-plt.plot(ma_50_days, 'r')
-plt.plot(data.Close, 'g')
-st.pyplot(fig1)
+# Dark theme CSS
+st.markdown("""
+<style>
+body {
+    background-color: #0e1117;
+    color: #ffffff;
+}
+.stApp {
+    background-color: #0e1117;
+    color: white;
+}
+h1, h2, h3, h4, h5, h6 {
+    color: white;
+}
+</style>
+""", unsafe_allow_html=True)
 
-st.subheader('Price vs MA50 vs MA100')
-ma_100_days = data.Close.rolling(100).mean()
-fig2 = plt.figure(figsize=(8,6))
-plt.plot(ma_50_days, 'r')
-plt.plot(ma_100_days, 'b')
-plt.plot(data.Close, 'g')
-st.pyplot(fig2)
+# ----------------- Header -----------------
+st.title("📈 LSTM Stock Price Forecast with Technical Analysis")
 
-st.subheader('Price vs MA100 vs MA200')
-ma_200_days = data.Close.rolling(200).mean()
-fig3 = plt.figure(figsize=(8,6))
-plt.plot(ma_100_days, 'r')
-plt.plot(ma_200_days, 'b')
-plt.plot(data.Close, 'g')
-st.pyplot(fig3)
+# ----------------- User Input -----------------
+stock = st.text_input("Enter Stock Symbol (e.g. AAPL, GOOG, ^NSEI)", value="AAPL")
+future_days = st.slider("Days to Predict into Future", min_value=1, max_value=90, value=30)
+start_date = st.date_input("Select Start Date", value=datetime.now() - timedelta(days=365*5))
+end_date = st.date_input("Select End Date", value=datetime.now())
 
-# Preparing Data for Prediction
-x, y = [], []
-for i in range(100, data_test_scale.shape[0]):
-    x.append(data_test_scale[i-100:i])
-    y.append(data_test_scale[i, 0])
+# ----------------- Load Model -----------------
+model = load_model("Stock_Prediction_Future_Model2.keras")
 
-x, y = np.array(x), np.array(y)
+# ----------------- Download Stock Data -----------------
+@st.cache_data
+def load_data(symbol, start, end):
+    df = yf.download(symbol, start=start, end=end)
+    return df
 
-# Predicting with the Model
-predict = model.predict(x)
+if st.button("🔄 Refresh Stock Data"):
+    st.experimental_rerun()
 
-# Rescale Predictions
-scale = 1 / scaler.scale_
-predict = predict * scale
-y = y * scale
+df = load_data(stock, start_date, end_date)
 
-# Plot Original vs Predicted Price
-st.subheader('Original Price vs Predicted Price')
-fig4 = plt.figure(figsize=(8,6))
-plt.plot(predict, 'r', label='Predicted Price')
-plt.plot(y, 'g', label='Original Price')
-plt.xlabel('Time')
-plt.ylabel('Price')
-plt.legend()
-st.pyplot(fig4)
+if df.empty:
+    st.error("❌ Could not fetch data. Please check the symbol.")
+    st.stop()
+
+st.success(f"✅ Data Loaded: {df.shape[0]} rows")
+
+# ----------------- Technical Indicator Calculation -----------------
+def add_technical_indicators(df):
+    df['SMA_50'] = df['Close'].rolling(window=50).mean()
+    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+
+    # RSI
+    delta = df['Close'].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+
+    # MACD
+    ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema_12 - ema_26
+
+    # Bollinger Bands
+    ma20 = df['Close'].rolling(window=20).mean()
+    std20 = df['Close'].rolling(window=20).std()
+    df['Upper_BB'] = ma20 + (2 * std20)
+    df['Lower_BB'] = ma20 - (2 * std20)
+
+    return df
+
+df = add_technical_indicators(df)
+df = df.dropna()
+
+# ----------------- Prepare Data for Prediction -----------------
+data_close = df[['Close']].values
+scaler = MinMaxScaler()
+scaled_data = scaler.fit_transform(data_close)
+
+past_days = 100
+x_input = scaled_data[-past_days:]
+x_input = x_input.reshape(1, past_days, 1)
+
+# Predict Future
+future_predictions = []
+for _ in range(future_days):
+    pred = model.predict(x_input)[0][0]
+    future_predictions.append(pred)
+    x_input = np.append(x_input[:, 1:, :], [[[pred]]], axis=1)
+
+predicted_prices = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
+last_date = df.index[-1]
+future_dates = [last_date + timedelta(days=i+1) for i in range(future_days)]
+predicted_df = pd.DataFrame(predicted_prices, columns=["Predicted"], index=future_dates)
+
+# ----------------- Calculate RMSE -----------------
+train_size = int(len(scaled_data) * 0.8)
+train_data = scaled_data[:train_size]
+test_data = scaled_data[train_size - past_days:]
+
+x_test = []
+y_test = []
+
+for i in range(past_days, len(test_data)):
+    x_test.append(test_data[i - past_days:i])
+    y_test.append(test_data[i, 0])
+
+x_test, y_test = np.array(x_test), np.array(y_test)
+y_pred = model.predict(x_test)
+y_pred = scaler.inverse_transform(y_pred)
+y_test = scaler.inverse_transform(y_test.reshape(-1, 1))
+
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+# ----------------- Plotting -----------------
+st.subheader(f"📊 {stock.upper()} Stock Forecast & Technical Chart")
+plot_type = st.radio("Choose Chart Type", ["Candlestick", "Line Chart"])
+
+if plot_type == "Candlestick":
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=df.index,
+                                 open=df['Open'],
+                                 high=df['High'],
+                                 low=df['Low'],
+                                 close=df['Close'], name="Candlestick"))
+    fig.add_trace(go.Scatter(x=predicted_df.index, y=predicted_df['Predicted'],
+                             mode='lines', name="Predicted Price", line=dict(color='red', dash='dash')))
+else:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Actual Price', line=dict(color='lime')))
+    fig.add_trace(go.Scatter(x=predicted_df.index, y=predicted_df['Predicted'], name='Predicted Price',
+                             line=dict(color='red', dash='dash')))
+
+# Add selected indicators
+selected_indicators = st.multiselect("📈 Select Indicators to Display", 
+                                     ["SMA_50", "EMA_20", "RSI", "MACD", "Upper_BB", "Lower_BB"],
+                                     default=["SMA_50", "EMA_20"])
+
+for indicator in selected_indicators:
+    fig.add_trace(go.Scatter(x=df.index, y=df[indicator], name=indicator))
+
+fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False,
+                  title=f"{stock.upper()} Stock Price with Forecast",
+                  xaxis_title="Date", yaxis_title="Price")
+
+st.plotly_chart(fig, use_container_width=True)
+
+# ----------------- Show Forecast -----------------
+st.subheader("🔮 Predicted Prices Table")
+st.dataframe(predicted_df)
+
+# ----------------- Model Confidence -----------------
+st.info(f"📉 Model Confidence (RMSE): `{rmse:.2f}`")
+
+# ----------------- Footer -----------------
+st.caption("⚡ Powered by LSTM, Streamlit, and yFinance")
